@@ -9,7 +9,7 @@ class Constructor(unittest.TestCase):
 		self.client = Client(resource_id=self.uuid, netloc=self.netloc)
 	
 	def test_specify_uuid(self):
-		self.assertEqual(self.client._resource_id, self.uuid)
+		self.assertEqual(self.client.uuid, self.uuid)
 	
 	def test_specify_host(self):
 		self.assertEqual(self.client.netloc, self.netloc)
