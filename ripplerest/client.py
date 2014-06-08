@@ -45,10 +45,18 @@ using :func:`ripplerest.Client.set_resource_id` in this way::
   >>> client.set_resource_id()
   >>> uuid, url = client.post_payment('sMasterPassword', payment)
 """
+import sys
 
-import urllib.request
-import urllib.parse
-from urllib.error import HTTPError
+if sys.version_info[0] < 3:
+    from urllib2 import Request, urlopen
+    from urllib import urlencode
+    from urlparse import urlunsplit
+    from urllib2 import HTTPError
+else:
+    from urllib.request import Request, urlopen
+    from urllib.parse import urlencode, urlunsplit
+    from urllib.error import HTTPError
+
 import json
 import uuid
 
@@ -68,39 +76,39 @@ class Client:
 
   In the client the server address and a unique client UUID are stored
   A Client can be used only for a single payment, unless its UUID is reset
-    
+
   :param netloc: The hostname of the ripple rest server
   :param secure: If the connection to the server should be encripted
   :param resource_id: The UUID to be used for the requests
   """
   def set_resource_id(self, resource_id=None):
     """Set the local UUID
-    
+
     :param resource_id: The UUID to be used. Defaults to a random one
     """
     self.uuid = resource_id or str(uuid.uuid4())
-  
+
   def __init__(self, netloc, secure=False,
     resource_id=None):
     self.netloc = netloc
     self.scheme = 'https' if secure else 'http'
     self.set_resource_id(resource_id=resource_id)
-  
+
   def _request(self, path, parameters=None, data=None, secret=None,
     complete_path=False):
     """Make an HTTP request to the server
-  
+
     Encode the query parameters and the form data and make the GET or POST
     request
-  
+
     :param path: The path of the HTTP resource
     :param parameters: The query parameters
     :param data: The data to be sent in JSON format
     :param secret: The secret key, which will be added to the data
     :param complete_path: Do not prepend the common path
-  
+
     :returns: The response, stripped of the 'success' field
-    
+
     :raises RippleRESTException: An error returned by the rest server
     """
     if not complete_path:
@@ -110,17 +118,17 @@ class Client:
       for k, v in parameters.items():
         if type(v) is bool:
           parameters[k] = 'true' if v else 'false'
-      parameters = urllib.parse.urlencode(parameters)
+      parameters = urlencode(parameters)
     pieces = (self.scheme, self.netloc, path, parameters, None)
-    url = urllib.parse.urlunsplit(pieces)
-    req = urllib.request.Request(url)
+    url = urlunsplit(pieces)
+    req = Request(url)
     if data is not None:
       req.add_header("Content-Type","application/json;charset=utf-8")
       data['client_resource_id'] = self.uuid
       data['secret'] = secret
       data = json.dumps(data).encode('utf-8')
     try:
-      response = urllib.request.urlopen(req, data)
+      response = urlopen(req, data)
       response = json.loads(response.read().decode('utf-8'))
     except HTTPError as e:
       error_object = json.loads(e.read().decode('utf-8'))['message']
@@ -130,14 +138,14 @@ class Client:
       return response
     else:
       raise RippleRESTException(response['message'])
-    
+
   def get_balances(self, address, **kwargs):
     """Get the balances of an account
-    
+
     :param address: The account to be queried
     :param currency: The currency to limit the query to
     :param counterparty: The issuer of the IOU
-      
+
     :returns: A generator of balances
     """
     url = 'accounts/{address}/balances'
@@ -145,12 +153,12 @@ class Client:
     response = self._request(url, kwargs)
     for balance in response['balances']:
       yield Balance(issuer=address, **balance)
-  
+
   def get_account_settings(self, address, **kwargs):
     """Get the settings of the specified account
-    
+
     :param address: The account to be queried
-    
+
     :return: The requested settings
     :rtype: AccountSettings
     """
@@ -161,9 +169,9 @@ class Client:
   
   def post_account_settings(self, address, secret, **kwargs):
     """Set the account settings
-    
+
     One or more parameters can be specified at one time.
-     
+
     :param secret: The key that will be used to sign the transaction
     :param address: The Ripple address of the account in question
     :param bool disable_master:
@@ -178,34 +186,34 @@ class Client:
     :param url:
     :param transfer_rate:
     :param signers:
-    
+
     :return: The settings of the account after the change
     """
     url = 'accounts/{address}/settings'
     url = url.format(address=address)
     response = self._request(url, data=kwargs, secret=secret)
     return response['ledger'], response['hash'], response['settings']
-  
+
   def post_payment(self, secret, payment):
     """Send a payment
-    
+
     To prevent double-spends, only one payment is possible with the same UUID.
     A second payment is possible if the UUID is reset using set_resource_id()
-    
+
     :param secret: The key that will be used to sign the transaction
     :param payment: The proposed payment that will be sent to the network
-    
+
     :return: The UUID used for this payment and the URL of the payment
     :rtype: (uuid, url)
     """
     url = 'payments'
     response = self._request(url, data={'payment': payment}, secret=secret)
     return response['client_resource_id'], response['status_url']
-  
+
   def get_paths(self, address, destination_account, value, currency,
     issuer=None, source_currencies=None):
     """Query for possible payment paths
-    
+
     :param address: The source account
     :param destination_account: The destination account
     :param float value: The value of the payment
@@ -217,7 +225,7 @@ class Client:
         (currency_code, [issuer]). If no issuer is specified for a currency
         other than XRP, the results will be limited to the specified currencies
         but any issuer for that currency will do
-    
+
     :return: A generator of possible payments, ready to be submitted
     """
     elements = filter(bool, (value, currency, issuer))
@@ -236,17 +244,17 @@ class Client:
     response = self._request(url, parameters)
     for payment in response['payments']:
       yield Payment(**payment)
-  
+
   def get_payment(self, address, hash_or_uuid):
     """Get payment
-    
+
     Retrieve the details of one or more payments from the rippled server or,
     if the transaction failled off-network or is still pending,
     from the ripple-rest instance's local database
-    
+
     :param address: A ripple account
     :param hash_or_uuid: The identifier of the payment
-    
+
     :return: The requested payment
     """
     url = 'accounts/{address}/payments/{hash_or_uuid}'
@@ -256,10 +264,10 @@ class Client:
     )
     response = self._request(url)
     return Payment(**response['payment'])
-  
+
   def get_payments(self, address, **kwargs):
     """Retrieve historical payments
-    
+
     :param address: A ripple account
     :param source_account: Limit the results to payments initiated
         by a particular account
@@ -282,7 +290,7 @@ class Client:
     :param int page: The page to be displayed. If there are fewer payments than
         results_per_page number displayed, this indicates that this is
         the last page
-    
+
     :returns: A generator of pairs of payments and corresponding UUIDs.
       The UUIDs can be blank if the the payment was not submitted using
       the current rest server
@@ -292,29 +300,29 @@ class Client:
     response = self._request(url, kwargs)
     for payment in response['payments']:
       yield Payment(**payment['payment']), payment['client_resource_id']
-    
+
   def get_trustlines(self, address, **kwargs):
     """Get an account's existing trustlines
-    
+
     :param address: The account to be queried
     :param currency: Limit the search to this currency
     :param counterparty: Limit the search to this counterparty
-    
+
     :return: A generator of trustlines
     """
     url = 'accounts/{address}/trustlines'.format(address=address)
     response = self._request(url, kwargs)
     for trustline in response['trustlines']:
       yield Trustline(**trustline)
-  
+
   def post_trustline(self, address, secret, trustline, **kwargs):
     """Add or modify trustline
-    
+
     :params address: The ripple account that will be modified
     :param secret: The key that will be used to sign the transaction
     :param trustline: The new trustline
     :param bool allow_rippling: Enable rippling. Defaults to True
-      
+
     :return: The modified trustline, the transaction hash and the ledger number
     :rtype: (Trustline, hash, int)
     """
@@ -322,54 +330,54 @@ class Client:
     url = url.format(address=address)
     response = self._request(url, data={'trustline': trustline}, secret=secret)
     return (
-      Trustline(**response['trustline']), 
+      Trustline(**response['trustline']),
       response['hash'],
       int(response['ledger']),
     )
-  
+
   def get_notification(self, address, hash, **kwargs):
     """Retrieve a notification corresponding to a transaction
-    
+
     The notification is retrieved from either rippled's historical database
     or ripple-rest's local database if the transaction was submitted
     through this instance of ripple-rest
-    
+
     :param address: A Ripple account
     :param hash: Transaction identifier
-    
+
     :return: The requested notification
     """
     url = 'accounts/{address}/notifications/{hash}'
     url = url.format(address=address, hash=hash)
     response = self._request(url, parameters=kwargs)
     return response['notification']
-  
+
   def get_connection_status(self):
     """Return the rippled connection status
-    
+
     :return: If the connection is active
     :rtype: bool
     """
     return self._request('server/connected')['connected']
-  
+
   def get_server_info(self):
     """Get the ripple-rest and rippled information
-    
+
     :return: A dictionary with multiple pieces of information
     """
     return self._request('server')
 
-  
+
   def get_uuid(self):
     """Ask the rest server for a random UUID
-    
+
     :return: uuid (uuid): The UUID provided by the server
     """
     return self._request('uuid')
-  
+
   def get_transaction(self, hash):
     """Get a transaction by hash
-    
+
     :return: The requested transaction
     """
     url = 'transactions/{hash}'
