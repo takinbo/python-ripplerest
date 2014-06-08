@@ -165,8 +165,8 @@ class Client:
     url = 'accounts/{address}/settings'
     url = url.format(address=address)
     response = self._request(url)
-    return AccountSettings(account=address, **response['settings'])
-  
+    return AccountSettings(**response['settings'])
+
   def post_account_settings(self, address, secret, **kwargs):
     """Set the account settings
 
